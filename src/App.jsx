@@ -1904,7 +1904,7 @@ function RequestsView({ user }) {
         if (qs.length > 0) {
           qs.forEach((q) => {
             const ans = r.answers[q.id];
-            rows.push([req.title, r.reviewer_name, new Date(r.submitted_at).toLocaleDateString(), resolveEmoji(r.initial_reaction), q.title || q.prompt || "", q.type === "reaction" ? resolveEmoji(ans) : (ans ?? ""), r.closing_answer || ""].map(escCSV).join(","));
+            rows.push([req.title, r.reviewer_name, new Date(r.submitted_at).toLocaleDateString(), resolveEmoji(r.initial_reaction), q.text || "", q.type === "reaction" ? resolveEmoji(ans) : (ans ?? ""), r.closing_answer || ""].map(escCSV).join(","));
           });
         } else {
           rows.push([req.title, r.reviewer_name, new Date(r.submitted_at).toLocaleDateString(), resolveEmoji(r.initial_reaction), "", "", r.closing_answer || ""].map(escCSV).join(","));
@@ -2453,6 +2453,7 @@ function ResultsView({ requestId, user }) {
   const [expanded, setExpanded] = useState(null);
   const [newNotif, setNewNotif] = useState(false);
   const [reshareCopied, setReshareCopied] = useState(false);
+  const [showContent, setShowContent] = useState(true);
 
   useEffect(() => { loadAll(); const t = setInterval(poll, 30000); return () => clearInterval(t); }, [requestId]);
 
@@ -2503,7 +2504,7 @@ function ResultsView({ requestId, user }) {
   function exportCSV() {
     if (!request || responses.length === 0) return;
     const qs = request.questions || [];
-    const headers = ["Reviewer", "Submitted", request.addFirstImpression ? "First Impression" : null, ...qs.map((q) => q.title || q.prompt || "Question"), request.addClosingQuestion ? "Closing Answer" : null, "Reviewer Questions"].filter(Boolean);
+    const headers = ["Reviewer", "Submitted", request.addFirstImpression ? "First Impression" : null, ...qs.map((q) => q.text || "Question"), request.addClosingQuestion ? "Closing Answer" : null, "Reviewer Questions"].filter(Boolean);
     const escCSV = (v) => { const s = String(v ?? ""); return s.includes(",") || s.includes('"') || s.includes("\n") ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const resolveEmoji = (val) => { if (!val) return ""; const found = REACTIONS.find((r) => r.label === val); if (found) return found.emoji + " " + val; if (val.startsWith("custom:")) return val.slice(7); return val; };
     const rows = responses.map((r) => {
@@ -2554,10 +2555,35 @@ function ResultsView({ requestId, user }) {
         <div className="card" style={{ marginBottom: 20, padding: "12px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="text-sm bold">🔗 Review link</span>
-            <code style={{ fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted)" }}>{reviewUrl}</code>
+            <a href={reviewUrl} style={{ fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--accent)", textDecoration: "none", fontFamily: "monospace" }}>{reviewUrl}</a>
             <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard.writeText(reviewUrl); setReshareCopied(true); setTimeout(() => setReshareCopied(false), 2000); }}>{reshareCopied ? "✓ Copied" : "Copy"}</button>
           </div>
         </div>
+
+        {request.contentItems?.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: showContent ? 10 : 0 }}>
+              <span className="text-sm bold" style={{ color: "var(--muted)" }}>📎 Shared content · {request.contentItems.length} item{request.contentItems.length !== 1 ? "s" : ""}</span>
+              <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => setShowContent((v) => !v)}>{showContent ? "Hide" : "Show"}</button>
+            </div>
+            {showContent && (
+              <div style={{ display: "grid", gridTemplateColumns: request.contentItems.length === 1 ? "1fr" : "1fr 1fr", gap: 10 }}>
+                {request.contentItems.map((item) => (
+                  <div key={item.id} className="card" style={{ marginBottom: 0, padding: 0, overflow: "hidden" }}>
+                    <div style={{ height: 180, overflow: "hidden", position: "relative", background: "var(--warm)" }}>
+                      <MiniPreview item={item} />
+                    </div>
+                    <div style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 14 }}>{CONTENT_ICONS[item.type] || "📎"}</span>
+                      <span className="text-sm bold" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                      {item.rawUrl && <a href={item.rawUrl} target="_blank" rel="noreferrer" className="text-sm" style={{ color: "var(--accent)", flexShrink: 0 }}>Open ↗</a>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {synthesizing && (
           <div className="synthesis-block" style={{ opacity: 0.7 }}>
@@ -2568,7 +2594,8 @@ function ResultsView({ requestId, user }) {
           </div>
         )}
         {synthesis && !synthesizing && (
-          <div className="synthesis-block">
+          <div className="synthesis-block" style={{ position: "relative" }}>
+            <button onClick={() => setSynthesis(null)} style={{ position: "absolute", top: 12, right: 14, background: "none", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 4 }} title="Dismiss" onMouseEnter={(e) => e.currentTarget.style.color = "white"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255,255,255,0.5)"}>✕</button>
             <h2>AI Synthesis</h2>
             <div className="synthesis-content">{synthesis}</div>
           </div>
@@ -2589,6 +2616,19 @@ function ResultsView({ requestId, user }) {
                 </div>
                 {avg && <div style={{ textAlign: "center", flexShrink: 0 }}><div style={{ fontSize: 26, fontFamily: "'Lato', sans-serif" }}>{avg}</div><div className="text-sm text-muted">avg / 5</div></div>}
               </div>
+              {q.hotspot && request.contentItems?.[q.hotspot.contentItemIndex] && (() => {
+                const hItem = request.contentItems[q.hotspot.contentItemIndex];
+                const hs = q.hotspot;
+                return (
+                  <div style={{ marginTop: 10, borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)", position: "relative", height: 120, background: "var(--warm)" }}>
+                    <MiniPreview item={hItem} />
+                    <div className="hotspot-pulse" style={{ position: "absolute", left: `${hs.x * 100}%`, top: `${hs.y * 100}%`, width: `${hs.w * 100}%`, height: `${hs.h * 100}%`, pointerEvents: "none" }}>
+                      <span className="hotspot-label">Focus here</span>
+                    </div>
+                    <div style={{ position: "absolute", bottom: 4, left: 6, fontSize: 11, color: "var(--muted)", background: "rgba(255,255,255,0.85)", padding: "1px 6px", borderRadius: 4 }}>{CONTENT_ICONS[hItem.type] || "📎"} {hItem.label}</div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
                 {qAnswers.map((a, i) => {
                   const emoji = q.type === "reaction" ? (REACTIONS.find((r) => r.label === a.answer)?.emoji || (a.answer?.startsWith?.("custom:") ? a.answer.slice(7) : "") ) : "";
