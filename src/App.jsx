@@ -339,6 +339,9 @@ textarea{resize:vertical;min-height:76px}
 .content-item-row{display:flex;align-items:center;gap:10px;background:white;border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:13px}
 .content-item-icon{font-size:16px;flex-shrink:0}
 .content-item-label-wrap{flex:1;display:flex;align-items:center;gap:4px;overflow:hidden;min-width:0}.content-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.content-item-pencil{opacity:0;flex-shrink:0;cursor:pointer;font-size:12px;color:var(--muted);border:none;background:none;padding:0 2px;line-height:1;transition:opacity .15s}.content-item-row:hover .content-item-pencil{opacity:1}.content-item-pencil:hover{color:var(--accent)}.content-item-label-edit{flex:1;border:1px solid var(--accent);border-radius:4px;padding:2px 6px;font-size:13px;font-family:inherit;outline:none;min-width:0}
+.content-item-drag{cursor:grab;color:var(--muted);font-size:14px;flex-shrink:0;user-select:none;letter-spacing:-1px}
+.content-item-drag:active{cursor:grabbing}
+.content-item-dragover{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .content-item-remove{color:var(--muted);cursor:pointer;font-size:16px;line-height:1;flex-shrink:0;background:none;border:none;padding:2px 4px}
 .content-item-remove:hover{color:var(--accent)}
 .hotspot-canvas-overlay{position:absolute;inset:0;cursor:crosshair;z-index:10}
@@ -670,6 +673,8 @@ function ContentInput({ items, onChange }) {
   const fileRef = useRef();
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState("");
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
   const MODES = [{ id: "url", label: "🔗 Link / URL" }, { id: "files", label: "📎 Upload files" }, { id: "text", label: "📝 Paste text" }, { id: "code", label: "💻 Paste code" }];
   function addItem(item) { onChange([...items, { ...item, id: uid() }]); }
   function removeItem(id) { onChange(items.filter((i) => i.id !== id)); }
@@ -703,8 +708,17 @@ function ContentInput({ items, onChange }) {
       <label className="label">Content to review *</label>
       {items.length > 0 && (
         <div className="content-items">
-          {items.map((item) => (
-            <div className="content-item-row" key={item.id}>
+          {items.map((item, idx) => (
+            <div className={`content-item-row${dragOverIdx === idx ? " content-item-dragover" : ""}`} key={item.id}
+              draggable={items.length > 1 && editingId !== item.id}
+              onDragStart={(e) => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverIdx(idx); }}
+              onDragLeave={() => setDragOverIdx(null)}
+              onDrop={(e) => { e.preventDefault(); setDragOverIdx(null); if (dragIdx === null || dragIdx === idx) return; const reordered = [...items]; const [moved] = reordered.splice(dragIdx, 1); reordered.splice(idx, 0, moved); onChange(reordered); setDragIdx(null); }}
+              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
+              style={dragIdx === idx ? { opacity: 0.4 } : undefined}
+            >
+              {items.length > 1 && <span className="content-item-drag" title="Drag to reorder">⠿</span>}
               <span className="content-item-icon">{CONTENT_ICONS[item.type] || "📎"}</span>
               <span className="content-item-label-wrap">
                 {editingId === item.id ? (
@@ -1437,34 +1451,6 @@ function TeamView({ user, teamId: routeTeamId }) {
           ))}
         </div>
 
-        <div className="card" style={{ marginTop: 24, padding: "20px 24px" }}>
-          <div className="bold mb-8">Invite people</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-            <input type="email" placeholder="colleague@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && inviteEmail.trim() && sendEmailInvite()} style={{ flex: 1 }} />
-            <button className="btn btn-primary btn-sm" onClick={sendEmailInvite} disabled={!inviteEmail.trim()}>Send invite</button>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div className="share-box" style={{ flex: 1, marginBottom: 0 }}>
-              <div className="share-url" style={{ fontSize: 12 }}>{inviteUrl}</div>
-              <button className="btn btn-primary btn-sm" onClick={copyInvite}>{inviteCopied ? "✓ Copied!" : "Copy link"}</button>
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: "var(--muted)" }} onClick={rotateInvite}>↻ Regenerate link</button>
-            {(team.members.find((m) => m.id === user.id)?.role === "admin") && (
-              <button
-                className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: "var(--muted)" }}
-                onClick={() => {
-                  const updated = { ...team, visibility: team.visibility === "public" ? "private" : "public" };
-                  store.saveTeam(updated);
-                  window.location.reload();
-                }}
-              >
-                {team.visibility === "public" ? "🌐 Public team" : "🔒 Private team"}
-              </button>
-            )}
-          </div>
-        </div>
 
         {(teamRequests.length === 0 || team.members.length < 2) && (
           <div className="card" style={{ marginTop: 20, textAlign: "center", padding: "36px 28px", borderLeft: "3px solid var(--accent)" }}>
@@ -2536,20 +2522,20 @@ function ResultsView({ requestId, user }) {
 
   return (
     <div className="app"><StyleInjector />
-      <TopBar activeView="requests" user={user} extra={
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-ghost btn-sm" onClick={poll}>↻ Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => navigate(`edit/${requestId}`)}>✏️ Edit</button>
-          {responses.length > 0 && <button className="btn btn-ghost btn-sm" onClick={exportCSV}>📥 Export CSV</button>}
-          {request.status !== "completed" && <button className="btn btn-ghost btn-sm" onClick={markComplete}>Mark complete</button>}
-          <button className="btn btn-primary btn-sm" onClick={runSynthesis} disabled={synthesizing || responses.length === 0}>
-            {synthesizing ? "Synthesizing…" : synthesis ? "✨ Re-synthesize" : "✨ Synthesize"}
-          </button>
-        </div>
-      } />
+      <TopBar activeView="requests" user={user} />
       <div className="page">
         {newNotif && <div className="alert alert-success" style={{ marginBottom: 16 }}>🔔 New feedback just arrived! Results updated.</div>}
-        <div className="eyebrow">Results</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <div className="eyebrow" style={{ marginBottom: 0 }}>Results</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate(`edit/${requestId}`)}>✏️ Edit</button>
+            {responses.length > 0 && <button className="btn btn-ghost btn-sm" onClick={exportCSV}>📥 Export .CSV</button>}
+            {request.status !== "completed" && <button className="btn btn-ghost btn-sm" onClick={markComplete}>Mark complete</button>}
+            <button className="btn btn-primary btn-sm" onClick={runSynthesis} disabled={synthesizing || responses.length === 0}>
+              {synthesizing ? "Synthesizing…" : synthesis ? "✨ Re-synthesize" : "✨ Synthesize"}
+            </button>
+          </div>
+        </div>
         <h1 className="page-title">{request.title}</h1>
         {request.status === "completed" && <div className="tag" style={{ marginBottom: 14 }}>✓ Completed</div>}
         <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
